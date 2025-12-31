@@ -2,7 +2,11 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    println!("cargo:rerun-if-changed=wrapper.h");
+    let wrapper_path = Path::new("lib/wrapper.h");
+    if !wrapper_path.exists() {
+        panic!("couldn't found wrapper file!");
+    }
+    println!("cargo:rerun-if-changed={}", wrapper_path.display());
 
     // 1. zsh-dev の存在チェック用のパス定義
     // Ubuntu/Debianでの標準的なパス
@@ -20,7 +24,7 @@ fn main() {
     }
 
     let mut builder = bindgen::Builder::default()
-        .header("wrapper.h")
+        .header(wrapper_path.display().to_string())
         .derive_default(true)
         .blocklist_type("bool"); // Rustのboolと衝突するのを防ぐ
 

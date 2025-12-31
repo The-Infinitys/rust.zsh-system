@@ -1,7 +1,9 @@
 mod macros;
 mod module;
+mod shell;
 mod zalloc;
 pub use crate::module::*;
+pub use shell::*;
 pub use zalloc::*;
 #[doc(hidden)]
 pub mod bindings;
