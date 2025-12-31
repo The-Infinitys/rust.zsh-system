@@ -39,11 +39,11 @@ macro_rules! export_module {
             ///
             /// # Example
             /// ```
-            /// ZshInfinite::instance(|inst| {
+            /// ZshInfinite::with_instance(|inst| {
             ///     inst.precmd()
             /// });
             /// ```
-            pub fn instance<R>(f: impl FnOnce(&mut Self) -> R) -> R {
+            pub fn with_instance<R>(f: impl FnOnce(&mut Self) -> R) -> R {
                 __zsh_module_impl::with_container(|container| f(&mut container.instance))
             }
         }
