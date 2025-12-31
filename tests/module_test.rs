@@ -77,55 +77,75 @@ mod test_stubs {
 
 #[cfg(test)]
 mod tests {
-    use libc::c_char;
-
     use super::*;
-    use std::{os::raw::c_void, ptr};
+    use std::os::raw::{c_char, c_void};
+    use std::ptr;
 
     #[test]
-    fn test_module_lifecycle_and_features() {
+    fn test_full_module_lifecycle() {
         unsafe {
             let dummy_module = ptr::null_mut();
 
-            // 1. setup_ のテスト
-            // 内部で TestModule::default() が呼ばれ、OnceLock に格納されるはず
+            // 1. Setup テスト
+            // setup_ 内部で TestModule::default() が OnceLock にセットされ、setup() が呼ばれる
             let setup_res = setup_(dummy_module);
-            assert_eq!(setup_res, 0, "setup_ should return 0 on success");
+            assert_eq!(setup_res, 0, "setup_ should return 0 (success)");
 
-            // 2. boot_ のテスト
-            // OnceLock からインスタンスが取り出され、boot() が実行される
+            // 2. Boot テスト
+            // OnceLock からインスタンスが取得され、boot() 内の setup_called チェックをパスするはず
             let boot_res = boot_(dummy_module);
-            assert_eq!(boot_res, 0, "boot_ should return 0 after successful setup");
+            assert_eq!(
+                boot_res, 0,
+                "boot_ should return 0 because setup was called"
+            );
 
-            // 3. features_ のテスト (重要: ブリッジの検証)
-            // zshが機能リストを取得する挙動を模倣
-            let mut out_ptr: *mut *mut i8 = ptr::null_mut();
-            let features_res = features_(dummy_module, &mut out_ptr as *mut _);
+            // 3. Features テスト
+            // Features 構造体から zsh 用の 2次元配列 (char**) が生成されるプロセスを検証
+            let mut out_features: *mut *mut c_char = ptr::null_mut();
+            let feat_res = features_(dummy_module, &mut out_features);
+            assert_eq!(feat_res, 0, "features_ should return 0");
 
-            assert_eq!(features_res, 0);
-            // 本来は featuresarray スタブが返す値を検証するが、
-            // 少なくともセグメンテーションフォールトせず実行できることを確認
+            // 4. Cleanup テスト
+            let cleanup_res = cleanup_(dummy_module);
+            assert_eq!(cleanup_res, 0, "cleanup_ should return 0");
+
+            // 5. Finish テスト
+            let finish_res = finish_(dummy_module);
+            assert_eq!(finish_res, 0, "finish_ should return 0");
         }
     }
 
     #[test]
-    fn test_error_propagation() {
-        // エラー時に 1 が返ることを確認したい場合、
-        // 別途エラーを出す設定にした構造体で export_module! する必要があります。
-        // ここでは、boot_ などが Result::Err を返した場合に 1 に変換されるロジックを信頼します。
+    fn test_invalid_lifecycle_order() {
+        // 注: OnceLockの仕様上、他のテストが先に走るとインスタンスが既に存在するため、
+        // このテストを単独で実行するか、OnceLockの代わりに可変な管理が必要になります。
+        // ここでは、boot_ がエラーを返した場合のブリッジコードの挙動を信頼します。
+    }
+
+    // --- Zsh 内部関数のスタブ (テスト時のみリンク) ---
+    // これがないと、cargo test 実行時にリンクエラー（unresolved symbol）が発生します。
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn setfeatureenables(
+        _m: *mut c_void,
+        _f: *mut c_void,
+        _e: *mut i32,
+    ) -> i32 {
+        0
+    }
+
+    // features_ 内部で呼ばれる可能性がある zsh 側の関数をスタブ化
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn getfeatureenables(
+        _m: *mut c_void,
+        _f: *mut c_void,
+        _e: *mut *mut i32,
+    ) -> i32 {
+        0
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn featuresarray(_m: *mut c_void, _f: *mut c_void) -> *mut *mut c_char {
         // 空の配列（最後が NULL）を返すか、とりあえず NULL を返す
         std::ptr::null_mut()
-    }
-
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn handlefeatures(
-        _m: *mut c_void,
-        _f: *mut c_void,
-        _en: *mut *mut i32,
-    ) -> i32 {
-        0
     }
 }

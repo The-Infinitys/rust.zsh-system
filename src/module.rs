@@ -1,11 +1,13 @@
 mod builtin;
 mod conddef;
 mod features;
+mod hook;
 mod mathfunc;
 mod paramdef;
 pub use builtin::Builtin;
 pub use conddef::Conddef;
 pub use features::Features;
+pub use hook::Hook;
 pub use mathfunc::Mathfunc;
 pub use paramdef::Paramdef;
 
