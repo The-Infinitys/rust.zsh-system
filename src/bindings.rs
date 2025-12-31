@@ -6,4 +6,5 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unnecessary_transmutes)]
 #![allow(unused)]
+#![allow(clippy::all)]
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

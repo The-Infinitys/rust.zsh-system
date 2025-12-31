@@ -11,12 +11,16 @@ pub struct ZBox<T: ?Sized> {
 impl<T> ZBox<T> {
     pub fn new(value: T) -> Self {
         unsafe {
-            let ptr = bindings::zalloc(std::mem::size_of::<T>() as usize) as *mut T;
+            let ptr = bindings::zalloc(std::mem::size_of::<T>()) as *mut T;
             let ptr = NonNull::new(ptr).expect("zsh: out of memory");
             std::ptr::write(ptr.as_ptr(), value);
             Self { ptr }
         }
     }
+    /// Wraps a raw pointer into ZBox.
+    ///
+    /// # Safety
+    /// `ptr` must have been allocated via zalloc and not yet freed.
     pub unsafe fn from_raw(ptr: *mut T) -> Self {
         Self {
             ptr: NonNull::new(ptr).expect("Attempted to wrap null pointer in ZBox"),

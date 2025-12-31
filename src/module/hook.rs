@@ -16,7 +16,10 @@ pub struct HookContext<'a> {
 }
 
 impl<'a> HookContext<'a> {
-    /// マクロから呼び出されるため、不使用警告を抑制
+    /// Creates a new `HookContext`.
+    ///
+    /// # Safety
+    /// `def` and `data` must be valid pointers provided by the zsh hook system.
     #[allow(dead_code)]
     pub unsafe fn new(def: *mut bindings::hookdef, data: *mut c_void) -> Self {
         Self {
@@ -26,7 +29,7 @@ impl<'a> HookContext<'a> {
         }
     }
 
-    /// フックの名前を取得する
+    /// Returns the name of the hook.
     #[allow(dead_code)] // マクロ内での使用を考慮
     pub fn hook_name(&self) -> &str {
         if self.raw_def.is_null() {
@@ -42,13 +45,17 @@ impl<'a> HookContext<'a> {
         }
     }
 
-    /// フックに渡されたデータを特定の型として取得する
-    #[allow(dead_code)]
+    /// # Safety
+    /// The caller must ensure that `T` is the correct type and that this access
+    /// follows Rust's aliasing rules (only one mutable reference at a time).
+    #[allow(clippy::mut_from_ref)] // zshのC APIブリッジであるため抑制
     pub unsafe fn data<T>(&self) -> Option<&mut T> {
         if self.raw_data.is_null() {
             None
         } else {
-            unsafe { Some(&mut *(self.raw_data as *mut T)) }
+            // Safety: raw_data is checked for null,
+            // type safety is guaranteed by the caller.
+            Some(unsafe { &mut *(self.raw_data as *mut T) })
         }
     }
 }

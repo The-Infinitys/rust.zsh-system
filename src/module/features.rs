@@ -21,6 +21,12 @@ pub struct Features {
 unsafe impl Send for Features {}
 unsafe impl Sync for Features {}
 
+impl Default for Features {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Features {
     pub fn new() -> Self {
         Self {
