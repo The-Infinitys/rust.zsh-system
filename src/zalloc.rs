@@ -64,7 +64,7 @@ impl ZString {
         unsafe {
             let ptr = bindings::ztrdup(c_str.as_ptr());
             Self {
-                inner: ZBox::from_raw(ptr as *mut i8),
+                inner: ZBox::from_raw(ptr),
             }
         }
     }

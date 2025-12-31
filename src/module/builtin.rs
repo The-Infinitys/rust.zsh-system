@@ -96,8 +96,9 @@ pub fn register_handler(name: &'static str, handler: BuiltinHandler) {
 
 pub fn dispatch(name: &str, args: &[&str]) -> i32 {
     if let Ok(h_list) = HANDLERS.lock()
-        && let Some((_, h)) = h_list.iter().find(|(n, _)| *n == name) {
-            return h(name, args);
-        }
+        && let Some((_, h)) = h_list.iter().find(|(n, _)| *n == name)
+    {
+        return h(name, args);
+    }
     1
 }
