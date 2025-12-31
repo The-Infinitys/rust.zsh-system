@@ -91,7 +91,7 @@ pub type ZshHookFn = unsafe extern "C" fn(arg1: *mut bindings::hookdef, arg2: *m
 pub struct Hook;
 
 impl Hook {
-    pub fn get_available_hook_names() -> Vec<String> {
+    pub fn list() -> Vec<String> {
         let mut names = Vec::new();
         unsafe {
             // [hookdef; 0] の先頭ポインタを取得
