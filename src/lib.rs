@@ -2,34 +2,46 @@ mod bindings;
 mod macros;
 mod module;
 mod zalloc;
-pub use crate::module::{Features, ZshModule};
+pub use crate::module::*;
 pub use zalloc::*;
 
 #[doc(hidden)]
 pub mod __private_api {
+    use crate::Features;
     use crate::bindings;
-    use crate::module::Features;
 
+    /// zsh がモジュールから提供される「機能の名前リスト」を取得するためのブリッジ
     pub unsafe fn features_bridge(
         m: bindings::Module,
-        feat: &mut Features,
+        features: &mut Features,
         out: *mut *mut *mut i8,
-    ) {
-        let mut raw = feat.as_zsh_features();
-        // 修正: unsafeブロックで囲む
+    ) -> i32 {
+        // Rust の Features から zsh 用の features 生構造体を構築
+        // この際、内部の raw_builtins 等の Vec が更新され、ポインタが固定される
+        let mut raw_f = features.as_zsh_features();
+
+        // zsh 内部関数の featuresarray を呼び出す。
+        // これにより、zsh が認識できる形式の文字列配列が作成され、out にセットされる。
         unsafe {
-            *out = bindings::featuresarray(m, &mut raw);
+            let array_ptr = bindings::featuresarray(m, &mut raw_f);
+            if !out.is_null() {
+                *out = array_ptr;
+            }
         }
+        0
     }
 
+    /// zsh が特定の機能を有効化/無効化（enables/disables）する際のブリッジ
     pub unsafe fn enables_bridge(
         m: bindings::Module,
-        feat: &mut Features,
+        features: &mut Features,
         enables: *mut *mut i32,
     ) -> i32 {
-        let mut raw = feat.as_zsh_features();
-        // 修正: unsafeブロックで囲む
-        unsafe { bindings::handlefeatures(m, &mut raw, enables) }
+        let mut raw_f = features.as_zsh_features();
+
+        // zsh 内部関数の handlefeatures を呼び出す。
+        // これにより、現在の有効/無効状態（ビットマップ等）が enables にセットされる。
+        unsafe { bindings::handlefeatures(m, &mut raw_f, enables) }
     }
 }
 

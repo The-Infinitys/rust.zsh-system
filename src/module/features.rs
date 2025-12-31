@@ -44,18 +44,14 @@ impl Features {
         self.param_defs.push(param);
         self
     }
-
-    /// 最終的にzshへ渡す Raw 構造体を生成する。
-    /// 内部のキャッシュを更新するため `&mut self` に変更。
     pub fn as_zsh_features(&mut self) -> bindings::features {
-        // Rustのラッパー構造体からCの生構造体へ変換してキャッシュに格納
+        // 各 SafeWrapper から C の生構造体へ変換
         self.raw_builtins = self.builtins.iter().map(|b| b.as_raw()).collect();
         self.raw_conddefs = self.conddefs.iter().map(|c| c.as_raw()).collect();
         self.raw_mathfuncs = self.math_funcs.iter().map(|m| m.as_raw()).collect();
         self.raw_paramdefs = self.param_defs.iter().map(|p| p.as_raw()).collect();
 
         bindings::features {
-            // .as_ptr() は *const T を返すため、zshが要求する *mut T にキャスト
             bn_list: self.raw_builtins.as_mut_ptr(),
             bn_size: self.raw_builtins.len() as i32,
             cd_list: self.raw_conddefs.as_mut_ptr(),
