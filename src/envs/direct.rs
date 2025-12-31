@@ -222,3 +222,9 @@ impl ZshAnyPtr {
         }
     }
 }
+/// be careful to use them with multi-thread environment
+/// but it won't be happen.
+unsafe impl<T: ZshParamType> Send for ZshParamPtr<T> {}
+unsafe impl<T: ZshParamType> Sync for ZshParamPtr<T> {}
+unsafe impl Send for ZshAnyPtr {}
+unsafe impl Sync for ZshAnyPtr {}
