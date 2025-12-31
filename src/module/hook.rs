@@ -1,7 +1,7 @@
 use crate::bindings;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
-use std::ptr;
+use std::ptr::{self, addr_of_mut};
 use thiserror::Error;
 
 /// フック実行時のコンテキストを保持する安全なラッパー
@@ -91,6 +91,29 @@ pub type ZshHookFn = unsafe extern "C" fn(arg1: *mut bindings::hookdef, arg2: *m
 pub struct Hook;
 
 impl Hook {
+    pub fn get_available_hook_names() -> Vec<String> {
+        let mut names = Vec::new();
+        unsafe {
+            // [hookdef; 0] の先頭ポインタを取得
+            let mut ptr = addr_of_mut!(bindings::zshhooks) as *mut bindings::hookdef;
+
+            if ptr.is_null() {
+                return names;
+            }
+
+            // Zshの構造に従い、nameフィールドがNULLになるまでループ
+            // ※ センチネル（終端要素）に到達するまでポインタをずらす
+            while !ptr.is_null() && !(*ptr).name.is_null() {
+                let name_ptr = (*ptr).name;
+                if let Ok(name) = CStr::from_ptr(name_ptr).to_str() {
+                    names.push(name.to_string());
+                }
+                // 次の要素（hookdef構造体のサイズ分）進める
+                ptr = ptr.add(1);
+            }
+        }
+        names
+    }
     pub fn add(name: &str, func: ZshHookFn) -> Result<(), HookError> {
         let c_name = CString::new(name).map_err(|_| HookError::InvalidString)?;
 
