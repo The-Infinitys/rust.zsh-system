@@ -9,28 +9,22 @@
 #[macro_export]
 macro_rules! export_module {
     ($module_struct:ty) => {
-        /// この定数は、マクロが展開されたことを示すマーカーとして機能します。
-        #[allow(dead_code)]
-        const ZSH_MODULE_EXPORTED: () = ();
-        /// マクロ内部のシンボルが外部と衝突しないようにモジュールで包む
+        /// モジュール実装をカプセル化
         mod __zsh_module_impl {
             use super::*;
             use std::sync::{Mutex, OnceLock};
             use $crate::Features;
 
-            /// モジュールインスタンスとそのフィーチャーキャッシュを保持するコンテナ。
             pub struct ModuleContainer {
                 pub instance: $module_struct,
                 pub features_cache: Features,
             }
 
-            /// モジュールインスタンスを保持するグローバルストレージ。
-            /// `OnceLock` と `Mutex` を使用して、一度だけ初期化され、スレッドセーフにアクセスできるようにします。
+            /// 実体を保持するグローバルストレージ
             pub static MODULE_STORAGE: OnceLock<Mutex<ModuleContainer>> = OnceLock::new();
 
-            /// モジュールインスタンスに安全にアクセスするためのヘルパー関数。
-            /// `MODULE_STORAGE` の `Mutex` をロックし、モジュールコンテナへの可変参照を提供します。
-            pub fn with_module<R>(f: impl FnOnce(&mut ModuleContainer) -> R) -> R {
+            /// 内部用：コンテナ全体へのアクセス
+            pub fn with_container<R>(f: impl FnOnce(&mut ModuleContainer) -> R) -> R {
                 let mutex = MODULE_STORAGE
                     .get()
                     .expect("Zsh module not initialized (setup_ not called)");
@@ -39,23 +33,30 @@ macro_rules! export_module {
             }
         }
 
-        // --- Zsh エントリポイント (Extern "C" API) ---
+        /// 構造体名を通じて実体にアクセスするための拡張を実装
+        impl $module_struct {
+            /// Rustの他の場所から、このモジュールの実体（Runtimeなどを含む）にアクセスするための関数。
+            ///
+            /// # Example
+            /// ```
+            /// ZshInfinite::instance(|inst| {
+            ///     inst.precmd()
+            /// });
+            /// ```
+            pub fn instance<R>(f: impl FnOnce(&mut Self) -> R) -> R {
+                __zsh_module_impl::with_container(|container| f(&mut container.instance))
+            }
+        }
 
-        /// `setup_`: Zshがモジュールを最初にロードする際に呼び出されるエントリポイント。
-        /// モジュールインスタンスの初期化と、`MODULE_STORAGE`への格納を行います。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
+        // --- Zsh エントリポイント ---
+
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn setup_(m: *mut i8) -> i32 {
             use std::sync::Mutex;
-            // モジュールの初期化
             let mut instance = <$module_struct as Default>::default();
 
             match instance.setup() {
                 Ok(_) => {
-                    // 機能定義をキャッシュ
                     let features_cache = instance.features();
                     let container = __zsh_module_impl::ModuleContainer {
                         instance,
@@ -66,9 +67,6 @@ macro_rules! export_module {
                         .set(Mutex::new(container))
                         .is_err()
                     {
-                        eprintln!(
-                            "zsh-system: Failed to initialize module storage (already initialized)"
-                        );
                         return 1;
                     }
                     0
@@ -80,15 +78,9 @@ macro_rules! export_module {
             }
         }
 
-        /// `features_`: Zshがモジュールが提供する機能のリストを問い合わせる際に呼び出されるエントリポイント。
-        /// `__private_api::features_bridge` を通じて、登録された機能をZshに渡します。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` および `out` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn features_(m: *mut i8, out: *mut *mut *mut i8) -> i32 {
-            __zsh_module_impl::with_module(|container| unsafe {
+            __zsh_module_impl::with_container(|container| unsafe {
                 $crate::__private_api::features_bridge(
                     m as *mut _,
                     &mut container.features_cache,
@@ -97,15 +89,9 @@ macro_rules! export_module {
             })
         }
 
-        /// `enables_`: Zshがモジュール機能の有効/無効状態を変更する際に呼び出されるエントリポイント。
-        /// `__private_api::enables_bridge` を通じて、Zshの要求を処理します。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` および `enables` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn enables_(m: *mut i8, enables: *mut *mut i32) -> i32 {
-            __zsh_module_impl::with_module(|container| unsafe {
+            __zsh_module_impl::with_container(|container| unsafe {
                 $crate::__private_api::enables_bridge(
                     m as *mut _,
                     &mut container.features_cache,
@@ -114,15 +100,9 @@ macro_rules! export_module {
             })
         }
 
-        /// `boot_`: Zshがモジュール機能を有効化した際に呼び出されるエントリポイント。
-        /// モジュールに定義された `boot` メソッドを実行します。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn boot_(m: *mut i8) -> i32 {
-            __zsh_module_impl::with_module(|c| match c.instance.boot() {
+            __zsh_module_impl::with_container(|c| match c.instance.boot() {
                 Ok(_) => 0,
                 Err(e) => {
                     eprintln!("zsh-system: boot failed: {}", e);
@@ -131,15 +111,9 @@ macro_rules! export_module {
             })
         }
 
-        /// `cleanup_`: Zshがモジュール機能を無効化またはアンロードする際に呼び出されるエントリポイント。
-        /// モジュールに定義された `cleanup` メソッドを実行します。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn cleanup_(m: *mut i8) -> i32 {
-            __zsh_module_impl::with_module(|c| match c.instance.cleanup() {
+            __zsh_module_impl::with_container(|c| match c.instance.cleanup() {
                 Ok(_) => 0,
                 Err(e) => {
                     eprintln!("zsh-system: cleanup failed: {}", e);
@@ -148,15 +122,9 @@ macro_rules! export_module {
             })
         }
 
-        /// `finish_`: Zshがモジュールを完全にアンロードし、リソースを解放する際に呼び出されるエントリポイント。
-        /// モジュールに定義された `finish` メソッドを実行します。
-        ///
-        /// # Safety
-        /// Zshによって呼び出される生ポインタ `m` を扱います。
-        /// ZshのモジュールAPIの規約に従って安全に呼び出されることを前提とします。
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn finish_(m: *mut i8) -> i32 {
-            __zsh_module_impl::with_module(|c| match c.instance.finish() {
+            __zsh_module_impl::with_container(|c| match c.instance.finish() {
                 Ok(_) => 0,
                 Err(e) => {
                     eprintln!("zsh-system: finish failed: {}", e);
