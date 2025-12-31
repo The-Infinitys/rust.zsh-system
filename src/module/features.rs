@@ -1,4 +1,5 @@
 use crate::bindings;
+use crate::module::builtin::BuiltinHandler;
 use crate::module::{Builtin, Conddef, Mathfunc, Paramdef};
 
 /// zshの `features` 構造体を安全に構築・保持するためのラッパー
@@ -35,8 +36,14 @@ impl Features {
         }
     }
 
-    pub fn add_builtin(mut self, builtin: Builtin) -> Self {
-        self.builtins.push(builtin);
+    pub fn add_builtin(mut self, name: &'static str, handler: BuiltinHandler) -> Self {
+        use crate::module::builtin::{Builtin, register_handler};
+
+        // 1. ハンドラをディスパッチャに登録
+        register_handler(name, handler);
+
+        // 2. ビルトイン定義を追加
+        self.builtins.push(Builtin::new(name, handler));
         self
     }
 
