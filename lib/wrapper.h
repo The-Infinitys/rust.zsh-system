@@ -1,3 +1,12 @@
+/**
+ * @file wrapper.h
+ * @brief This file serves as a wrapper to include essential Zsh header files.
+ *
+ * It aggregates standard and configuration headers required for Zsh module development,
+ * as well as component-specific headers that provide access to various Zsh internal
+ * functionalities and data structures. This wrapper simplifies the inclusion process
+ * for `bindgen` in the Rust build script.
+ */
 #ifndef WRAPPER_H
 #define WRAPPER_H
 

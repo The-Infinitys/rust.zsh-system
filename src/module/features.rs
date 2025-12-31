@@ -1,8 +1,15 @@
+//! このモジュールは、Zshモジュールが提供する各種機能（ビルトイン、条件定義、数式関数、パラメータ定義）
+//! を定義し、Zshの内部構造である `features` に変換するための安全なラッパーを提供します。
+//!
+//! `Features` 構造体は、これらの機能のRust表現を保持し、必要に応じてZshのC構造体に変換します。
 use crate::bindings;
 use crate::module::builtin::BuiltinHandler;
 use crate::module::{Builtin, Conddef, Mathfunc, Paramdef};
 
-/// zshの `features` 構造体を安全に構築・保持するためのラッパー
+/// Zshの `features` 構造体を安全に構築・保持するためのラッパー。
+///
+/// この構造体は、モジュールが提供するビルトインコマンド、条件定義、数式関数、
+/// パラメータ定義を管理し、ZshのモジュールAPIに渡すための形式に変換します。
 pub struct Features {
     builtins: Vec<Builtin>,
     conddefs: Vec<Conddef>,
@@ -10,24 +17,32 @@ pub struct Features {
     param_defs: Vec<Paramdef>,
     n_abstract: i32,
 
-    // Zshに渡すポインタの参照先を保持するためのキャッシュ
-    // これがないと、as_zsh_features 内で作った一時的な Vec は即座に解放されてしまいます
+    /// Zshに渡すポインタの参照先を保持するためのキャッシュ。
+    /// `as_zsh_features`内で作成される一時的な`Vec`が即座に解放されるのを防ぎ、
+    /// Zshがアクセスする間、これらのデータが有効であることを保証します。
     raw_builtins: Vec<bindings::builtin>,
     raw_conddefs: Vec<bindings::conddef>,
     raw_mathfuncs: Vec<bindings::mathfunc>,
     raw_paramdefs: Vec<bindings::paramdef>,
 }
 
+/// `Features`はZshの内部ポインタへの参照を保持する可能性がありますが、
+/// Zshモジュールのコンテキストでは、これらの参照はモジュールロード中に設定され、
+/// その後のアクセスはZshによって同期されるか、シングルスレッドで行われることが期待されます。
+/// したがって、`unsafe impl Send`と`unsafe impl Sync`を宣言することで、
+/// `Features`が`Mutex`などの並行性プリミティブ内で安全に利用できるようにします。
 unsafe impl Send for Features {}
 unsafe impl Sync for Features {}
 
 impl Default for Features {
+    /// 新しい空の `Features` インスタンスを作成します。
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Features {
+    /// 新しい空の `Features` インスタンスを作成します。
     pub fn new() -> Self {
         Self {
             builtins: Vec::new(),
@@ -42,6 +57,10 @@ impl Features {
         }
     }
 
+    /// ビルトインコマンドを `Features` に追加します。
+    ///
+    /// ハンドラは内部的にグローバルディスパッチャに登録され、
+    /// `Builtin`構造体が`features`リストに追加されます。
     pub fn add_builtin(mut self, name: &'static str, handler: BuiltinHandler) -> Self {
         use crate::module::builtin::{Builtin, register_handler};
 
@@ -53,10 +72,18 @@ impl Features {
         self
     }
 
+    /// パラメータ定義を `Features` に追加します。
     pub fn add_param(mut self, param: Paramdef) -> Self {
         self.param_defs.push(param);
         self
     }
+
+    /// `Features` インスタンスの内容をZshの `bindings::features` 構造体に変換します。
+    ///
+    /// このメソッドは、内部の `builtins` などの `Vec` から生のC構造体`Vec`を生成し、
+    /// そのポインタを `bindings::features` に設定します。
+    /// `raw_builtins` などのフィールドにこれらの`Vec`を保持することで、
+    /// Zshがアクセスする間、メモリが解放されないようにします。
     pub fn as_zsh_features(&mut self) -> bindings::features {
         // 各 SafeWrapper から C の生構造体へ変換
         self.raw_builtins = self.builtins.iter().map(|b| b.as_raw()).collect();

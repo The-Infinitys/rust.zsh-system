@@ -1,3 +1,10 @@
+//! `zsh-system` のビルドスクリプト。
+//!
+//! `bindgen` を使用して Zsh のヘッダーファイルから Rust の FFI (Foreign Function Interface) バインディングを生成します。
+//! これにより、Rust コードから Zsh の C API を安全に呼び出すことができるようになります。
+//!
+//! Zsh の開発用ヘッダーファイルが特定のパスに存在することを前提とし、
+//! 見つからない場合はエラーを発生させます。
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -8,12 +15,12 @@ fn main() {
     }
     println!("cargo:rerun-if-changed={}", wrapper_path.display());
 
-    // 1. zsh-dev の存在チェック用のパス定義
-    // Ubuntu/Debianでの標準的なパス
+    // Zsh開発パッケージの存在チェックとパス定義
+    // Ubuntu/Debianなどの標準的なパスを想定
     let zsh_include_dir = "/usr/include/zsh";
     let zsh_config_dir = "/usr/lib/x86_64-linux-gnu/zsh/5.9/include";
 
-    // 2. 明示的なエラーハンドリング
+    // 明示的なエラーハンドリング: zsh-dev パッケージがインストールされているかを確認
     if !Path::new(zsh_include_dir).exists() {
         panic!(
             "\n\n[zsh-system ERROR]: zsh-dev package not found!\n\
@@ -28,7 +35,7 @@ fn main() {
         .derive_default(true)
         .blocklist_type("bool"); // Rustのboolと衝突するのを防ぐ
 
-    // 3. Featuresに基づくパスの追加
+    // Featuresに基づくパスの追加
     #[cfg(feature = "5-9")]
     let version = "5.9";
     builder = builder

@@ -1,20 +1,34 @@
+# zsh-system
+#
+# このCargo.tomlファイルは、Zsh用のRustモジュールである `zsh-system` クレートの設定を定義します。
+# ZshのC APIとのFFI連携を目的とし、Zshの機能（ビルトイン、フック、パラメータなど）をRustから安全に操作できるようにします。
+
 [package]
 name = "zsh-system"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
+# `cdylib` はZshモジュールとしてロード可能なダイナミックライブラリを生成します。
+# `rlib` は他のRustクレートからリンクするための静的ライブラリです。
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
+# `bindgen` はZshのヘッダーファイルからRustのFFIバインディングを自動生成するために使用されます。
 bindgen = "0.72.1"
 
 [features]
+# デフォルトで有効化されるフィーチャーを定義します。
 default = ["5-9"]
+# Zshの特定のバージョン（例: 5.9）に対応するフィーチャーを定義します。
+# これにより、Zshのバージョンに応じた条件付きコンパイルが可能になります。
 5-9 = []
 
 [dev-dependencies]
+# 開発時のみ必要な依存関係を定義します。`libc` は主にテストや低レベルな操作のために使用されます。
 libc = "0.2.178"
 
 [dependencies]
+# プロジェクトの標準的な依存関係です。
+# `thiserror` はエラー処理を簡素化するためのクレートです。
 thiserror = "2.0.17"

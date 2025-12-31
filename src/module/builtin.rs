@@ -1,11 +1,21 @@
+//! このモジュールは、ZshのビルトインコマンドをRustで定義および管理するための機能を提供します。
+//!
+//! Zshのビルトインコマンドは、`BuiltinHandler`トレイトによって定義されたRust関数として実装され、
+//! `Builtin`構造体を通じてZshに登録されます。
+//! 登録されたハンドラは、`dispatch`関数を通じて実行時に呼び出されます。
 use crate::bindings;
 use crate::zalloc::ZString;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 
-/// Rust 側で定義する安全なハンドラの型
+/// Rust側で定義する安全なビルトインコマンドハンドラの型エイリアス。
+///
+/// コマンド名と引数のスライスを受け取り、Zshの終了ステータスとして`i32`を返します。
 pub type BuiltinHandler = fn(name: &str, args: &[&str]) -> i32;
 
+/// Zshのビルトインコマンドの定義をカプセル化する構造体。
+///
+/// コマンド名、ハンドラ関数、最小・最大引数を保持します。
 pub struct Builtin {
     name: ZString,
     handler: BuiltinHandler,
@@ -14,16 +24,27 @@ pub struct Builtin {
 }
 
 impl Builtin {
+    /// 新しい `Builtin` インスタンスを作成します。
+    ///
+    /// `name` はビルトインコマンドの名前、`handler` は実行時に呼び出されるRust関数です。
     pub fn new(name: &str, handler: BuiltinHandler) -> Self {
         Self {
             name: ZString::new(name),
             handler,
             min_args: 0,
-            max_args: -1,
+            max_args: -1, // -1 means no maximum argument limit
         }
     }
 
-    /// zsh から直接呼ばれるブリッジ
+    /// Zshから直接呼ばれるC互換のブリッジ関数。
+    ///
+    /// Zshのビルトインコマンドのハンドラシグネチャに合わせ、
+    /// Rustの安全な`BuiltinHandler`を呼び出す役割を担います。
+    /// 引数のポインタをRustの安全な型に変換し、登録されたハンドラにディスパッチします。
+    ///
+    /// # Safety
+    /// ZshのC APIからの生ポインタ (`name`, `argv`) を扱うため、
+    /// ポインタが有効であり、ZshのAPI規約に従って使用されることを呼び出し元が保証する必要があります。
     unsafe extern "C" fn bridge_handler(
         name: *mut c_char,
         argv: *mut *mut c_char,
@@ -49,16 +70,17 @@ impl Builtin {
             }
         }
 
-        // 3. zsh が保持している handlerdata から Rust の関数ポインタを復元して実行
-        // zsh は実行時に該当する builtin 構造体を探し、その handlerdata を渡してくれます。
-        // ※ 本来は引数から builtin 構造体を取得する必要がありますが、
-        // 確実なのは zsh 内部の `current_builtin` 的なポインタを参照するか、
-        // 以前のようにグローバル検索することです。
-
-        // ここでは警告を消しつつ安全に実行するため、登録されたハンドラを呼び出します。
+        // 3. 登録されたハンドラを呼び出す
         dispatch(name_str, &args)
     }
 
+    /// `Builtin`インスタンスをZshの`builtin`構造体として表現します。
+    ///
+    /// この生構造体はZshのモジュールAPIに渡され、コマンドとして登録されます。
+    ///
+    /// # Safety
+    /// `std::mem::zeroed()` を使用して構造体をゼロ初期化し、
+    /// 生ポインタの操作が含まれるため、この関数は`unsafe`です。
     pub fn as_raw(&self) -> bindings::builtin {
         let mut b: bindings::builtin = unsafe { std::mem::zeroed() };
 
@@ -75,7 +97,9 @@ impl Builtin {
         b
     }
 
-    // 警告を消すための明示的なアクセサ
+    /// `Builtin`に格納されているRustハンドラ関数を取得します。
+    ///
+    /// これは主に内部的な使用とコンパイラの警告回避のためです。
     pub fn handler(&self) -> BuiltinHandler {
         self.handler
     }
@@ -83,8 +107,13 @@ impl Builtin {
 
 // 静的変数による管理
 use std::sync::Mutex;
+/// 登録されたビルトインハンドラをグローバルに管理するためのミューテックス保護されたベクタ。
+/// (`'static str`, `BuiltinHandler`) のタプルを格納します。
 static HANDLERS: Mutex<Vec<(&'static str, BuiltinHandler)>> = Mutex::new(Vec::new());
 
+/// ビルトインコマンドのハンドラをグローバルディスパッチャに登録します。
+///
+/// 同じ名前のハンドラが既に登録されている場合は、重複して登録されません。
 pub fn register_handler(name: &'static str, handler: BuiltinHandler) {
     if let Ok(mut h) = HANDLERS.lock() {
         // 同じ名前が既にあるかチェックして重複を防ぐ
@@ -94,6 +123,10 @@ pub fn register_handler(name: &'static str, handler: BuiltinHandler) {
     }
 }
 
+/// 指定された名前のビルトインハンドラを実行します。
+///
+/// Zshの`bridge_handler`から呼び出され、適切なRustハンドラ関数に処理を委譲します。
+/// ハンドラが見つからない場合は終了ステータス `1` を返します。
 pub fn dispatch(name: &str, args: &[&str]) -> i32 {
     if let Ok(h_list) = HANDLERS.lock()
         && let Some((_, h)) = h_list.iter().find(|(n, _)| *n == name)

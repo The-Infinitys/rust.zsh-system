@@ -1,15 +1,24 @@
+//! This module provides safe Rust bindings for interacting with Zsh shell parameters (variables).
+//!
+//! It offers functions to get and set string, integer, and array parameters,
+//! as well as to unset parameters, abstracting away the unsafe FFI calls to Zsh's C API.
 use crate::ZString;
 use crate::bindings;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
+/// `ZshParameter` provides a safe interface for accessing and modifying Zsh shell parameters.
 pub struct ZshParameter;
 
 impl ZshParameter {
-    /// 文字列変数を取得する
+    /// Retrieves the value of a string parameter from Zsh.
+    ///
+    /// Returns `Some(String)` if the parameter exists and its value can be
+    /// converted to a Rust `String`, otherwise returns `None`.
     pub fn get_str(name: &str) -> Option<String> {
         let c_name = CString::new(name).ok()?;
         unsafe {
+            // Calls Zsh's `getsparam` to get the string parameter.
             let ptr = bindings::getsparam(c_name.as_ptr() as *mut c_char);
             if ptr.is_null() {
                 None
@@ -19,17 +28,24 @@ impl ZshParameter {
         }
     }
 
-    /// 文字列変数を代入する
-    /// ZString を利用して zsh 内部のメモリ確保 (ztrdup) を行い、その所有権を zsh に渡す
+    /// Sets the value of a string parameter in Zsh.
+    ///
+    /// This function uses `ZString` to allocate memory for the string value
+    /// using Zsh's memory allocator (`ztrdup`) and transfers ownership to Zsh.
+    ///
+    /// Returns `Ok(())` on success, or an `Err` with a static string if the
+    /// name is invalid or setting the parameter fails.
     pub fn set_str(name: &str, value: &str) -> Result<(), &'static str> {
         let c_name = CString::new(name).map_err(|_| "Invalid name")?;
         let z_str = ZString::new(value);
 
         unsafe {
-            // ZString から raw ポインタを取り出し、Rust 側の Drop (zsfree) を回避して Zsh に委ねる
+            // Extract the raw pointer from ZString and `forget` it to prevent Rust's Drop
+            // from freeing the memory, as Zsh will manage its lifetime.
             let ptr = z_str.as_ptr();
             std::mem::forget(z_str);
 
+            // Calls Zsh's `setsparam` to set the string parameter.
             let res = bindings::setsparam(c_name.as_ptr() as *mut c_char, ptr);
             if !res.is_null() {
                 Ok(())
@@ -39,16 +55,23 @@ impl ZshParameter {
         }
     }
 
-    /// 整数変数を取得する
+    /// Retrieves the value of an integer parameter from Zsh.
+    ///
+    /// Returns the integer value. If the parameter does not exist or cannot be
+    /// converted to an integer, Zsh's internal `getiparam` behavior (usually 0) applies.
     pub fn get_int(name: &str) -> bindings::zlong {
         let c_name = CString::new(name).unwrap_or_default();
         unsafe { bindings::getiparam(c_name.as_ptr() as *mut c_char) }
     }
 
-    /// 整数変数を代入する
+    /// Sets the value of an integer parameter in Zsh.
+    ///
+    /// Returns `Ok(())` on success, or an `Err` with a static string if the
+    /// name is invalid or setting the parameter fails.
     pub fn set_int(name: &str, value: bindings::zlong) -> Result<(), &'static str> {
         let c_name = CString::new(name).map_err(|_| "Invalid name")?;
         unsafe {
+            // Calls Zsh's `setiparam` to set the integer parameter.
             let res = bindings::setiparam(c_name.as_ptr() as *mut c_char, value);
             if !res.is_null() {
                 Ok(())
@@ -58,14 +81,19 @@ impl ZshParameter {
         }
     }
 
-    /// 配列変数を代入する
-    /// ポインタ配列自体も zalloc で確保することで、zsh 内部の zsfree と整合させます
+    /// Sets the value of an array parameter in Zsh.
+    ///
+    /// The array elements and the array itself are allocated using Zsh's `zalloc`
+    /// and `ztrdup` functions, ensuring proper memory management within Zsh.
+    ///
+    /// Returns `Ok(())` on success, or an `Err` with a static string if the
+    /// name is invalid or setting the parameter fails.
     pub fn set_array(name: &str, values: Vec<&str>) -> Result<(), &'static str> {
         let c_name = CString::new(name).map_err(|_| "Invalid name")?;
 
         unsafe {
-            // 1. 配列の要素数 + 1 (NULL終端用) のサイズを zalloc で確保
-            // ポインタのサイズは std::mem::size_of::<*mut c_char>()
+            // 1. Allocate memory for the array of pointers using `zalloc`.
+            // The size is (number of elements + 1 for NULL terminator) * size of a pointer.
             let count = values.len();
             let array_size = (count + 1) * std::mem::size_of::<*mut c_char>();
             let ptr_array = bindings::zalloc(array_size) as *mut *mut c_char;
@@ -74,34 +102,39 @@ impl ZshParameter {
                 return Err("zsh: out of memory");
             }
 
-            // 2. 各要素を ztrdup (ZString) で作成し、配列に格納
+            // 2. Create each array element using `ZString` (which uses `ztrdup`)
+            // and store the raw pointer in the allocated array.
             for (i, val) in values.into_iter().enumerate() {
                 let z_val = ZString::new(val);
                 let p = z_val.as_ptr();
-                std::mem::forget(z_val); // Zsh 側で解放させるため Rust 側は forget
+                std::mem::forget(z_val); // Zsh will manage this memory
                 *ptr_array.add(i) = p;
             }
 
-            // 3. NULL 終端
+            // 3. NULL-terminate the array, as required by Zsh.
             *ptr_array.add(count) = std::ptr::null_mut();
 
-            // 4. zsh に代入。zsh は ptr_array 自体も zsfree する
+            // 4. Call Zsh's `setaparam` to set the array parameter.
+            // Zsh takes ownership of `ptr_array` and its contents.
             let res = bindings::setaparam(c_name.as_ptr() as *mut c_char, ptr_array);
 
             if !res.is_null() {
                 Ok(())
             } else {
-                // 本来は失敗時に確保したメモリを遡って解放すべきですが、
-                // setaparam が失敗することは稀であり、多くの場合 zsh 側で処理されます
+                // In case of failure, normally we should free the allocated memory.
+                // However, `setaparam` rarely fails, and Zsh often handles cleanup.
                 Err("Failed to set array parameter")
             }
         }
     }
 
-    /// 変数を削除する
+    /// Unsets (deletes) a parameter in Zsh.
+    ///
+    /// If the parameter does not exist, this function does nothing.
     pub fn unset(name: &str) {
         if let Ok(c_name) = CString::new(name) {
             unsafe {
+                // Calls Zsh's `unsetparam` to remove the parameter.
                 bindings::unsetparam(c_name.as_ptr() as *mut c_char);
             }
         }
