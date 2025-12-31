@@ -6,7 +6,8 @@ use crate::ZString;
 use crate::bindings;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-
+mod direct;
+pub use direct::*;
 /// `ZshParameter` provides a safe interface for accessing and modifying Zsh shell parameters.
 pub struct ZshParameter;
 
@@ -138,5 +139,17 @@ impl ZshParameter {
                 bindings::unsetparam(c_name.as_ptr() as *mut c_char);
             }
         }
+    }
+    /// ダイレクトポインタアクセス用のハンドラを取得します。
+    /// 指定した名前の変数が Zsh 内に存在する場合、そのメモリアドレスをキャッシュして
+    /// 高速な読み書き（ハッシュ検索のスキップ）が可能になります。
+    ///
+    /// # Example
+    /// ```
+    /// let mut prompt = ZshParameter::direct::<String>("PROMPT");
+    /// prompt.set("new prompt").unwrap();
+    /// ```
+    pub fn direct<T: ZshParamType>(name: &str) -> ZshParamPtr<T> {
+        ZshParamPtr::<T>::new(name)
     }
 }
