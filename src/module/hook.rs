@@ -69,7 +69,7 @@ macro_rules! zsh_hook_handler {
             data: *mut ::std::os::raw::c_void,
         ) -> i32 {
             // コンテキストの生成（unsafe ブロックで囲む）
-            let mut $context = unsafe { $crate::module::hook::HookContext::new(def, data) };
+            let mut $context = unsafe { $crate::HookContext::new(def, data) };
             let mut handler = || -> i32 { $body };
             handler()
         }

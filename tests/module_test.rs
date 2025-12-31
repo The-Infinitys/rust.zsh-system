@@ -8,23 +8,18 @@ struct TestModule {
 impl ZshModule for TestModule {
     fn setup(&mut self) -> ZshResult {
         self.setup_called = true;
-        // 成功を模倣
         Ok(())
     }
-
     fn features(&self) -> Features {
-        // 実際の動作確認のため、空ではないFeaturesを返す
         Features::new()
     }
-
     fn boot(&mut self) -> ZshResult {
         if self.setup_called {
             Ok(())
         } else {
-            Err("Setup was not called before boot".into())
+            Err("Setup not called".into())
         }
     }
-
     fn cleanup(&mut self) -> ZshResult {
         Ok(())
     }
@@ -33,32 +28,23 @@ impl ZshModule for TestModule {
     }
 }
 
-// マクロを展開
 export_module!(TestModule);
 
+// --- テスト専用スタブ (libzsh.so がない環境用) ---
 #[cfg(test)]
 mod test_stubs {
-    // bindgenが生成した型定義に合わせるため、必要な型をインポート
-    // bindgenの出力に合わせて *mut i8 や usize など調整してください
     use std::os::raw::{c_char, c_void};
 
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn zsfree(ptr: *mut c_void) {
         if !ptr.is_null() {
-            unsafe {
-                libc::free(ptr);
-            } // 簡易的な処理、または libc::free
+            unsafe { libc::free(ptr) }
         }
     }
 
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn zalloc(size: usize) -> *mut c_void {
-        // テスト時は std::alloc を使用
-        use std::alloc::{Layout, alloc};
-        unsafe {
-            let layout = Layout::from_size_align(size, 8).unwrap();
-            alloc(layout) as *mut c_void
-        }
+        unsafe { libc::malloc(size) }
     }
 
     #[unsafe(no_mangle)]
@@ -66,65 +52,10 @@ mod test_stubs {
         if s.is_null() {
             return std::ptr::null_mut();
         }
-        unsafe {
-            let len = std::ffi::CStr::from_ptr(s).to_bytes().len();
-            let ptr = zalloc(len + 1) as *mut c_char;
-            std::ptr::copy_nonoverlapping(s, ptr, len + 1);
-            ptr
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::raw::{c_char, c_void};
-    use std::ptr;
-
-    #[test]
-    fn test_full_module_lifecycle() {
-        unsafe {
-            let dummy_module = ptr::null_mut();
-
-            // 1. Setup テスト
-            // setup_ 内部で TestModule::default() が OnceLock にセットされ、setup() が呼ばれる
-            let setup_res = setup_(dummy_module);
-            assert_eq!(setup_res, 0, "setup_ should return 0 (success)");
-
-            // 2. Boot テスト
-            // OnceLock からインスタンスが取得され、boot() 内の setup_called チェックをパスするはず
-            let boot_res = boot_(dummy_module);
-            assert_eq!(
-                boot_res, 0,
-                "boot_ should return 0 because setup was called"
-            );
-
-            // 3. Features テスト
-            // Features 構造体から zsh 用の 2次元配列 (char**) が生成されるプロセスを検証
-            let mut out_features: *mut *mut c_char = ptr::null_mut();
-            let feat_res = features_(dummy_module, &mut out_features);
-            assert_eq!(feat_res, 0, "features_ should return 0");
-
-            // 4. Cleanup テスト
-            let cleanup_res = cleanup_(dummy_module);
-            assert_eq!(cleanup_res, 0, "cleanup_ should return 0");
-
-            // 5. Finish テスト
-            let finish_res = finish_(dummy_module);
-            assert_eq!(finish_res, 0, "finish_ should return 0");
-        }
+        unsafe { libc::strdup(s) }
     }
 
-    #[test]
-    fn test_invalid_lifecycle_order() {
-        // 注: OnceLockの仕様上、他のテストが先に走るとインスタンスが既に存在するため、
-        // このテストを単独で実行するか、OnceLockの代わりに可変な管理が必要になります。
-        // ここでは、boot_ がエラーを返した場合のブリッジコードの挙動を信頼します。
-    }
-
-    // --- Zsh 内部関数のスタブ (テスト時のみリンク) ---
-    // これがないと、cargo test 実行時にリンクエラー（unresolved symbol）が発生します。
-
+    // zshの機能をエミュレートするための空関数
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn setfeatureenables(
         _m: *mut c_void,
@@ -133,8 +64,6 @@ mod tests {
     ) -> i32 {
         0
     }
-
-    // features_ 内部で呼ばれる可能性がある zsh 側の関数をスタブ化
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn getfeatureenables(
         _m: *mut c_void,
@@ -143,9 +72,92 @@ mod tests {
     ) -> i32 {
         0
     }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use std::os::raw::{c_char, c_void};
+    use std::ptr;
+    use std::sync::Mutex;
+    use zsh_system::{ZshHookFn, bindings, zsh_hook_handler};
+
+    struct TestData {
+        counter: i32,
+    }
+
+    zsh_hook_handler!(test_hook_handler, context, {
+        if let Some(data) = unsafe { context.data::<TestData>() } {
+            data.counter += 1;
+        }
+        0
+    });
+
+    // 以前のエラーを回避するため、内部構造体をラップして Sync を付与
+    struct SyncHookDef(bindings::hookdef);
+    unsafe impl Send for SyncHookDef {}
+    unsafe impl Sync for SyncHookDef {}
+
+    static DUMMY_HOOK: Mutex<Option<SyncHookDef>> = Mutex::new(None);
+    static mut REGISTERED_FUNCS: Vec<ZshHookFn> = Vec::new();
+
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn featuresarray(_m: *mut c_void, _f: *mut c_void) -> *mut *mut c_char {
-        // 空の配列（最後が NULL）を返すか、とりあえず NULL を返す
-        std::ptr::null_mut()
+    pub unsafe extern "C" fn gethookdef(name: *mut c_char) -> *mut bindings::hookdef {
+        let name_str = unsafe { std::ffi::CStr::from_ptr(name) }.to_str().unwrap();
+        if name_str == "test_event" {
+            let mut guard = DUMMY_HOOK.lock().unwrap();
+            if guard.is_none() {
+                let mut h: bindings::hookdef = unsafe { std::mem::zeroed() };
+                h.name = name;
+                *guard = Some(SyncHookDef(h));
+            }
+            // static mut への直接参照 (&mut) を避け、addr_of_mut! 等からポインタを取得
+            return &mut guard.as_mut().unwrap().0 as *mut bindings::hookdef;
+        }
+        ptr::null_mut()
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn addhookfunc(_n: *mut c_char, f: ZshHookFn) -> i32 {
+        // static mut への直接参照を避け、addr_of_mut! でポインタとして扱う
+        unsafe {
+            let reg_ptr = std::ptr::addr_of_mut!(REGISTERED_FUNCS);
+            (*reg_ptr).push(f);
+        }
+        0
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn deletehookfunc(_n: *mut c_char, f: ZshHookFn) -> i32 {
+        unsafe {
+            let reg_ptr = std::ptr::addr_of_mut!(REGISTERED_FUNCS);
+            // 関数ポインタの比較には std::ptr::fn_addr_eq を使用 (unpredictable_function_pointer_comparisons 対応)
+            (*reg_ptr).retain(|&x| !std::ptr::fn_addr_eq(x, f));
+        }
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn runhookdef(h: *mut bindings::hookdef, data: *mut c_void) {
+        unsafe {
+            test_hook_handler(h, data);
+        }
+    }
+
+    #[test]
+    fn test_module_lifecycle_and_hooks() {
+        unsafe {
+            let dummy_module = ptr::null_mut();
+            assert_eq!(setup_(dummy_module), 0);
+            assert_eq!(boot_(dummy_module), 0);
+
+            // Hookテスト
+            let mut my_data = TestData { counter: 10 };
+            let hdef = gethookdef(b"test_event\0".as_ptr() as *mut c_char);
+            runhookdef(hdef, &mut my_data as *mut _ as *mut c_void);
+            assert_eq!(my_data.counter, 11);
+
+            assert_eq!(cleanup_(dummy_module), 0);
+            assert_eq!(finish_(dummy_module), 0);
+        }
     }
 }

@@ -1,9 +1,10 @@
-mod bindings;
 mod macros;
 mod module;
 mod zalloc;
 pub use crate::module::*;
 pub use zalloc::*;
+#[doc(hidden)]
+pub mod bindings;
 
 #[doc(hidden)]
 pub mod __private_api {
