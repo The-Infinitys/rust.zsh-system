@@ -1,5 +1,13 @@
+mod builtin;
+mod conddef;
 mod features;
+mod mathfunc;
+mod paramdef;
+pub use builtin::Builtin;
+pub use conddef::Conddef;
 pub use features::Features;
+pub use mathfunc::Mathfunc;
+pub use paramdef::Paramdef;
 
 pub trait ZshModule {
     /// モジュールのセットアップ（初期ロード時）

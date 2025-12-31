@@ -1,7 +1,9 @@
 mod bindings;
 mod macros;
 mod module;
+mod zalloc;
 pub use crate::module::{Features, ZshModule};
+pub use zalloc::*;
 
 #[doc(hidden)]
 pub mod __private_api {
