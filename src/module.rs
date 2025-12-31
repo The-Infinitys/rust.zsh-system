@@ -4,12 +4,12 @@ mod features;
 mod hook;
 mod mathfunc;
 mod paramdef;
-pub use builtin::Builtin;
-pub use conddef::Conddef;
-pub use features::Features;
-pub use hook::Hook;
-pub use mathfunc::Mathfunc;
-pub use paramdef::Paramdef;
+pub use builtin::*;
+pub use conddef::*;
+pub use features::*;
+pub use hook::*;
+pub use mathfunc::*;
+pub use paramdef::*;
 
 use std::error::Error;
 
