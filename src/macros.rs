@@ -37,12 +37,6 @@ macro_rules! export_module {
         impl $module_struct {
             /// Rustの他の場所から、このモジュールの実体（Runtimeなどを含む）にアクセスするための関数。
             ///
-            /// # Example
-            /// ```
-            /// ZshInfinite::with_instance(|inst| {
-            ///     inst.precmd()
-            /// });
-            /// ```
             pub fn with_instance<R>(f: impl FnOnce(&mut Self) -> R) -> R {
                 __zsh_module_impl::with_container(|container| f(&mut container.instance))
             }
