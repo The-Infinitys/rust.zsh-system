@@ -45,9 +45,14 @@ fn main() {
         .clang_arg(format!("-I{}", zsh_config_dir));
 
     // バインディング生成
-    let bindings = builder
-        .generate()
-        .expect("Unable to generate bindings. Check if clang is installed.");
+    let bindings = builder.generate().expect(
+        "Unable to generate bindings. Check if clang is installed.\n\n\
+         [zsh-system ERROR]: Compilation failed. This is often caused by missing header files.\n\
+         If you see 'sys/capability.h' not found, please install libcap development headers:\n\
+         - Debian/Ubuntu: sudo apt install libcap-dev\n\
+         - Fedora: sudo dnf install libcap-devel\n\
+         - Arch: sudo pacman -S libcap\n",
+    );
 
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
